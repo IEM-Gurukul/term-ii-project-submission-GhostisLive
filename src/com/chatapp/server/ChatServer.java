@@ -26,23 +26,26 @@ public class ChatServer {
         this.threadPool = Executors.newFixedThreadPool(MAX_THREADS);
     }
 
-    /**
-     * Register a new observer (client or logger).
-     */
+    /** Register a new observer (client or logger). */
     public void register(ChatObserver observer) {
         observers.add(observer);
     }
 
-    /**
-     * Remove an observer when a client disconnects.
-     */
+    /** Remove an observer when a client disconnects.     */
     public void unregister(ChatObserver observer) {
         observers.remove(observer);
     }
 
-    /**
-     * Start the server and accept incoming connections.
-     */
+    public void broadcast(String message) {
+    System.out.println("[BROADCAST] " + message);
+    for (ChatObserver observer : observers) {
+        observer.update(message);
+    }
+}
+
+    
+      /** Start the server and accept incoming connections.*/
+     
     public void start() {
         try {
             serverSocket = new ServerSocket(port);
@@ -53,15 +56,13 @@ public class ChatServer {
         }
     }
 
-    /**
-     * Continuously accept new client connections.
-     */
+    /** Continuously accept new client connections. */
     private void acceptClients() {
         while (!serverSocket.isClosed()) {
             try {
                 Socket clientSocket = serverSocket.accept();
                 System.out.println("New connection: " + clientSocket.getInetAddress());
-                // ClientHandler will be wired here in Day 3
+              
             } catch (IOException e) {
                 if (!serverSocket.isClosed()) {
                     System.err.println("Error accepting client: " + e.getMessage());
@@ -70,9 +71,7 @@ public class ChatServer {
         }
     }
 
-    /**
-     * Gracefully shut down the server and thread pool.
-     */
+    /** Gracefully shut down the server and thread pool.   */
     public void stop() {
         try {
             if (serverSocket != null) serverSocket.close();

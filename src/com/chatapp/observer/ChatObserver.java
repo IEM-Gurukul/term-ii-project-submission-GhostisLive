@@ -5,8 +5,7 @@ package com.chatapp.observer;
  * this interface, never on concrete implementations.
  */
 
-public class ChatObserver {
-    void update(String message) {
-    }
+public interface ChatObserver {
+    public void update(String message);
     
 }
