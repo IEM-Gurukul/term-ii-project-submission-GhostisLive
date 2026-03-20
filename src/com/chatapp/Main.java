@@ -1,6 +1,11 @@
 package com.chatapp;
 
+import com.chatapp.server.ChatServer;
 
+/**
+ * Application entry point.
+ * Starts the ChatServer on the specified port.
+ */
 public class Main {
 
     private static final int DEFAULT_PORT = 5000;
@@ -10,8 +15,7 @@ public class Main {
 
         System.out.println("Starting Chat Server on port " + port + "...");
 
-        // TODO: wire ChatServer once implemented
-        // ChatServer server = new ChatServer(port);
-        // server.start();
+        ChatServer server = new ChatServer(port);
+        server.start();
     }
 }

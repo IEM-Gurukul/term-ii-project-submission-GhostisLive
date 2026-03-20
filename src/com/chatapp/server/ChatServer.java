@@ -1,6 +1,7 @@
 package com.chatapp.server;
 
 import com.chatapp.observer.ChatObserver;
+import com.chatapp.client.ClientHandler;
 
 import java.io.IOException;
 import java.net.ServerSocket;
@@ -58,18 +59,22 @@ public class ChatServer {
 
     /** Continuously accept new client connections. */
     private void acceptClients() {
-        while (!serverSocket.isClosed()) {
-            try {
-                Socket clientSocket = serverSocket.accept();
-                System.out.println("New connection: " + clientSocket.getInetAddress());
-              
-            } catch (IOException e) {
-                if (!serverSocket.isClosed()) {
-                    System.err.println("Error accepting client: " + e.getMessage());
-                }
+    while (!serverSocket.isClosed()) {
+        try {
+            Socket clientSocket = serverSocket.accept();
+            System.out.println("New connection: " + clientSocket.getInetAddress());
+
+
+            ClientHandler handler = new ClientHandler(clientSocket, this);
+            threadPool.execute(handler);
+
+        } catch (IOException e) {
+            if (!serverSocket.isClosed()) {
+                System.err.println("Error accepting client: " + e.getMessage());
             }
         }
     }
+}
 
     /** Gracefully shut down the server and thread pool.   */
     public void stop() {
