@@ -1,0 +1,10 @@
+[2026-03-22 19:59:12] [xghost0 has joined the chat]
+[2026-03-22 19:59:23] xghost0: hello
+[2026-03-22 20:00:29] [gg has joined the chat]
+[2026-03-22 20:00:31] gg: rtt
+[2026-03-22 20:00:45] [gg has left the chat]
+[2026-03-22 20:00:57] [g has joined the chat]
+[2026-03-22 20:01:01] g: sfs
+[2026-03-22 20:01:06] xghost0: fsd
+[2026-03-22 20:01:14] [g has left the chat]
+[2026-03-22 20:01:15] [xghost0 has left the chat]
