@@ -2,6 +2,7 @@ package com.chatapp.server;
 
 import com.chatapp.client.ClientHandler;
 import com.chatapp.observer.ChatObserver;
+import com.chatapp.persistence.MessageLogger;
 
 import java.io.IOException;
 import java.net.ServerSocket;
@@ -27,6 +28,8 @@ public class ChatServer {
         this.observers = new CopyOnWriteArrayList<>();
         this.threadPool = Executors.newFixedThreadPool(MAX_THREADS);
         this.messageQueue = new LinkedBlockingQueue<>();
+        MessageLogger logger = new MessageLogger("logs/chat_history.txt");
+        this.observers.add(logger);
     }
 
     public void register(ChatObserver observer) {
