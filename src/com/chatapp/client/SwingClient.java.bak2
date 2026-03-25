@@ -1,0 +1,1105 @@
+package com.chatapp.client;
+
+import javax.swing.*;
+import javax.swing.border.*;
+import javax.swing.text.*;
+import java.awt.*;
+import java.awt.event.*;
+import java.awt.geom.*;
+import java.awt.image.BufferedImage;
+import java.io.*;
+import java.net.Socket;
+import java.text.SimpleDateFormat;
+import java.util.*;
+import java.util.List;
+
+/**
+ * SwingClient - Modern dark-theme GUI client.
+ *
+ * OOP Concept - Inheritance: extends JFrame to build the UI.
+ * OOP Concept - Threads: listener thread receives messages
+ * without blocking the Swing Event Dispatch Thread (EDT).
+ * UI updates dispatched via SwingUtilities.invokeLater().
+ */
+public class SwingClient extends JFrame {
+
+    // ── Enhanced Palette ──────────────────────────────────────────────────────
+    private static final Color BG_DEEP    = new Color(13,  17,  23);
+    private static final Color BG_SURFACE = new Color(22,  27,  34);
+    private static final Color BG_CARD    = new Color(30,  37,  46);
+    private static final Color BG_INPUT   = new Color(38,  46,  57);
+    private static final Color ACCENT     = new Color(88, 166, 255);
+    private static final Color ACCENT2    = new Color(56, 139, 253);
+    private static final Color ACCENT_HOVER = new Color(100, 175, 255);
+    private static final Color TEXT_PRI   = new Color(230, 237, 243);
+    private static final Color TEXT_SEC   = new Color(125, 133, 144);
+    private static final Color TEXT_MUT   = new Color(72,  79,  88);
+    private static final Color TEXT_TIME  = new Color(95, 103, 114);
+    private static final Color ONLINE     = new Color(35, 197, 94);
+    private static final Color MSG_SELF   = new Color(31,  111, 235);
+    private static final Color MSG_OTHER  = new Color(33,  38,  45);
+    private static final Color MSG_HOVER  = new Color(38,  43,  50);
+    private static final Color BORDER_C   = new Color(48,  54,  61);
+    private static final Color DM_COLOR   = new Color(245, 158, 11);
+    private static final Color SYS_COLOR  = new Color(88, 166, 255);
+    private static final Color SHADOW     = new Color(0, 0, 0, 30);
+    private static final Color DISCONNECT_COLOR = new Color(248, 81, 73);
+
+    // ── Components ────────────────────────────────────────────────────────────
+    private JPanel  chatPanel;
+    private JScrollPane scrollPane;
+    private JTextField  inputField;
+    private JButton     sendButton;
+    private JButton     scrollToBottomBtn;
+    private JButton     connectionButton;
+    private JLabel      statusLabel;
+    private JLabel      userLabel;
+    private JPanel      userListPanel;
+    private SimpleDateFormat timeFormat = new SimpleDateFormat("h:mm a");
+    private boolean autoScroll = true;
+    private int charCount = 0;
+    private static final int MAX_CHARS = 500;
+
+    // ── Network ───────────────────────────────────────────────────────────────
+    private PrintWriter  out;
+    private BufferedReader in;
+    private Socket       socket;
+    private Thread       listenerThread;
+    private String       myUsername = "";
+    private String       serverHost;
+    private int          serverPort;
+    private boolean      isConnected = false;
+
+    public SwingClient(String host, int port) {
+        this.serverHost = host;
+        this.serverPort = port;
+        buildUI();
+        // Don't auto-connect - let user click the button
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // UI CONSTRUCTION
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private void buildUI() {
+        setTitle("ChatApp");
+        setSize(920, 680);
+        setMinimumSize(new Dimension(720, 520));
+        setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+        setBackground(BG_DEEP);
+
+        // Modern window border with subtle shadow effect
+        getRootPane().setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(BORDER_C, 1),
+            BorderFactory.createEmptyBorder(1, 1, 1, 1)
+        ));
+
+        JPanel root = new JPanel(new BorderLayout(0, 0));
+        root.setBackground(BG_DEEP);
+        setContentPane(root);
+
+        root.add(buildSidebar(),    BorderLayout.WEST);
+        root.add(buildChatArea(),   BorderLayout.CENTER);
+
+        addWindowListener(new WindowAdapter() {
+            @Override public void windowClosing(WindowEvent e) {
+                if (isConnected) {
+                    disconnectFromServer();
+                }
+                dispose(); 
+                System.exit(0);
+            }
+        });
+
+        setLocationRelativeTo(null);
+        setVisible(true);
+    }
+
+    /** Left sidebar — app name + online users with hover effects */
+    private JPanel buildSidebar() {
+        JPanel sidebar = new JPanel(new BorderLayout(0, 0));
+        sidebar.setPreferredSize(new Dimension(220, 0));
+        sidebar.setBackground(BG_SURFACE);
+        sidebar.setBorder(new MatteBorder(0, 0, 0, 1, BORDER_C));
+
+        // Logo area with gradient background
+        JPanel logo = new JPanel(new FlowLayout(FlowLayout.LEFT, 16, 14)) {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+                GradientPaint gradient = new GradientPaint(
+                    0, 0, BG_SURFACE,
+                    0, getHeight(), new Color(25, 30, 37)
+                );
+                g2.setPaint(gradient);
+                g2.fillRect(0, 0, getWidth(), getHeight());
+                g2.dispose();
+            }
+        };
+        logo.setOpaque(false);
+        logo.setBorder(new MatteBorder(0, 0, 1, 0, BORDER_C));
+
+        JLabel dot = new JLabel("●");
+        dot.setFont(new Font("Dialog", Font.PLAIN, 11));
+        dot.setForeground(ACCENT);
+
+        JLabel title = new JLabel("ChatApp");
+        title.setFont(new Font("Dialog", Font.BOLD, 15));
+        title.setForeground(TEXT_PRI);
+
+        logo.add(dot);
+        logo.add(title);
+
+        // Section header
+        JPanel secHeader = new JPanel(new FlowLayout(FlowLayout.LEFT, 14, 8));
+        secHeader.setBackground(BG_SURFACE);
+        JLabel secLabel = new JLabel("ONLINE");
+        secLabel.setFont(new Font("Dialog", Font.BOLD, 10));
+        secLabel.setForeground(TEXT_MUT);
+        secHeader.add(secLabel);
+
+        // User list
+        userListPanel = new JPanel();
+        userListPanel.setLayout(new BoxLayout(userListPanel, BoxLayout.Y_AXIS));
+        userListPanel.setBackground(BG_SURFACE);
+
+        JScrollPane userScroll = new JScrollPane(userListPanel);
+        userScroll.setBorder(BorderFactory.createEmptyBorder());
+        userScroll.setBackground(BG_SURFACE);
+        userScroll.getViewport().setBackground(BG_SURFACE);
+        userScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+
+        JPanel top = new JPanel(new BorderLayout());
+        top.setBackground(BG_SURFACE);
+        top.add(logo,      BorderLayout.NORTH);
+        top.add(secHeader, BorderLayout.CENTER);
+
+        sidebar.add(top,        BorderLayout.NORTH);
+        sidebar.add(userScroll, BorderLayout.CENTER);
+
+        // Bottom — current user info
+        JPanel myInfo = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 10));
+        myInfo.setBackground(new Color(17, 21, 28));
+        myInfo.setBorder(new MatteBorder(1, 0, 0, 0, BORDER_C));
+
+        userLabel = new JLabel("Connecting...");
+        userLabel.setFont(new Font("Dialog", Font.BOLD, 12));
+        userLabel.setForeground(TEXT_PRI);
+
+        JLabel onlineDot = new JLabel("●");
+        onlineDot.setFont(new Font("Dialog", Font.PLAIN, 9));
+        onlineDot.setForeground(ONLINE);
+
+        myInfo.add(onlineDot);
+        myInfo.add(userLabel);
+        sidebar.add(myInfo, BorderLayout.SOUTH);
+
+        return sidebar;
+    }
+
+    /** Main chat area — header + messages + input + scroll button */
+    private JPanel buildChatArea() {
+        JPanel area = new JPanel(new BorderLayout(0, 0));
+        area.setBackground(BG_DEEP);
+
+        area.add(buildHeader(),    BorderLayout.NORTH);
+        
+        // Main content with messages
+        JPanel centerPanel = new JPanel(new BorderLayout());
+        centerPanel.setOpaque(false);
+        JScrollPane messages = buildMessages();
+        centerPanel.add(messages, BorderLayout.CENTER);
+        
+        // Scroll to bottom button (overlaid)
+        scrollToBottomBtn = new JButton("↓") {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                
+                // Shadow
+                g2.setColor(new Color(0, 0, 0, 60));
+                g2.fillOval(2, 2, getWidth()-2, getHeight()-2);
+                
+                // Background
+                Color bg = getModel().isRollover() ? ACCENT_HOVER : ACCENT;
+                g2.setColor(bg);
+                g2.fillOval(0, 0, getWidth()-2, getHeight()-2);
+                
+                // Arrow
+                g2.setColor(Color.WHITE);
+                g2.setFont(new Font("Dialog", Font.BOLD, 18));
+                FontMetrics fm = g2.getFontMetrics();
+                int x = (getWidth() - fm.stringWidth("↓")) / 2;
+                int y = (getHeight() + fm.getAscent() - fm.getDescent()) / 2;
+                g2.drawString("↓", x, y);
+                g2.dispose();
+            }
+        };
+        scrollToBottomBtn.setPreferredSize(new Dimension(44, 44));
+        scrollToBottomBtn.setBorderPainted(false);
+        scrollToBottomBtn.setContentAreaFilled(false);
+        scrollToBottomBtn.setFocusPainted(false);
+        scrollToBottomBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        scrollToBottomBtn.setVisible(false);
+        scrollToBottomBtn.addActionListener(e -> scrollToBottom());
+        
+        // Use glass pane technique for floating button
+        JPanel glassPane = new JPanel(null);
+        glassPane.setOpaque(false);
+        glassPane.add(scrollToBottomBtn);
+        
+        JLayeredPane layered = new JLayeredPane();
+        layered.setLayout(new BorderLayout());
+        layered.add(centerPanel, BorderLayout.CENTER);
+        layered.setLayer(centerPanel, JLayeredPane.DEFAULT_LAYER);
+        layered.add(glassPane, BorderLayout.CENTER);
+        layered.setLayer(glassPane, JLayeredPane.PALETTE_LAYER);
+        
+        area.add(layered,          BorderLayout.CENTER);
+        area.add(buildInputBar(),  BorderLayout.SOUTH);
+        
+        // Position scroll button when resized
+        area.addComponentListener(new ComponentAdapter() {
+            @Override public void componentResized(ComponentEvent e) {
+                int x = area.getWidth() - 70;
+                int y = area.getHeight() - 130;
+                scrollToBottomBtn.setBounds(x, y, 44, 44);
+                glassPane.setBounds(0, 0, area.getWidth(), area.getHeight() - 80);
+            }
+        });
+
+        return area;
+    }
+    
+    private void updateScrollButton() {
+        SwingUtilities.invokeLater(() -> {
+            scrollToBottomBtn.setVisible(!autoScroll);
+        });
+    }
+    
+    private void scrollToBottom() {
+        SwingUtilities.invokeLater(() -> {
+            JScrollBar sb = scrollPane.getVerticalScrollBar();
+            sb.setValue(sb.getMaximum());
+            autoScroll = true;
+            updateScrollButton();
+        });
+    }
+
+    private JPanel buildHeader() {
+        JPanel header = new JPanel(new BorderLayout(0, 0));
+        header.setBackground(BG_SURFACE);
+        header.setBorder(new CompoundBorder(
+                new MatteBorder(0, 0, 1, 0, BORDER_C),
+                new EmptyBorder(12, 18, 12, 18)));
+
+        JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        left.setOpaque(false);
+
+        JLabel hashLabel = new JLabel("# ");
+        hashLabel.setFont(new Font("Dialog", Font.BOLD, 16));
+        hashLabel.setForeground(TEXT_SEC);
+
+        JLabel roomLabel = new JLabel("general");
+        roomLabel.setFont(new Font("Dialog", Font.BOLD, 15));
+        roomLabel.setForeground(TEXT_PRI);
+
+        left.add(hashLabel);
+        left.add(roomLabel);
+
+        // Center panel with status
+        JPanel center = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 0));
+        center.setOpaque(false);
+        
+        statusLabel = new JLabel("● disconnected");
+        statusLabel.setFont(new Font("Dialog", Font.PLAIN, 11));
+        statusLabel.setForeground(TEXT_MUT);
+        center.add(statusLabel);
+
+        // Right panel with connection button
+        JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        right.setOpaque(false);
+        
+        connectionButton = new JButton("Connect") {
+            private Color currentBg = ACCENT;
+            
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                
+                // Shadow
+                g2.setColor(new Color(0, 0, 0, 40));
+                g2.fillRoundRect(1, 2, getWidth()-1, getHeight()-2, 8, 8);
+                
+                // Button background
+                g2.setColor(currentBg);
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
+                
+                // Text
+                g2.setColor(Color.WHITE);
+                g2.setFont(getFont());
+                FontMetrics fm = g2.getFontMetrics();
+                int x = (getWidth()  - fm.stringWidth(getText())) / 2;
+                int y = (getHeight() + fm.getAscent() - fm.getDescent()) / 2;
+                g2.drawString(getText(), x, y);
+                g2.dispose();
+            }
+        };
+        connectionButton.setFont(new Font("Dialog", Font.BOLD, 11));
+        connectionButton.setPreferredSize(new Dimension(100, 32));
+        connectionButton.setBorderPainted(false);
+        connectionButton.setContentAreaFilled(false);
+        connectionButton.setFocusPainted(false);
+        connectionButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        
+        connectionButton.addMouseListener(new MouseAdapter() {
+            @Override public void mouseEntered(MouseEvent e) {
+                if (isConnected) {
+                    animateButtonColor(connectionButton, DISCONNECT_COLOR, new Color(255, 100, 90));
+                } else {
+                    animateButtonColor(connectionButton, ACCENT, ACCENT_HOVER);
+                }
+            }
+            @Override public void mouseExited(MouseEvent e) {
+                if (isConnected) {
+                    animateButtonColor(connectionButton, new Color(255, 100, 90), DISCONNECT_COLOR);
+                } else {
+                    animateButtonColor(connectionButton, ACCENT_HOVER, ACCENT);
+                }
+            }
+        });
+        
+        connectionButton.addActionListener(e -> toggleConnection());
+        
+        right.add(connectionButton);
+
+        header.add(left,   BorderLayout.WEST);
+        header.add(center, BorderLayout.CENTER);
+        header.add(right,  BorderLayout.EAST);
+
+        return header;
+    }
+
+    private JScrollPane buildMessages() {
+        chatPanel = new JPanel();
+        chatPanel.setLayout(new BoxLayout(chatPanel, BoxLayout.Y_AXIS));
+        chatPanel.setBackground(BG_DEEP);
+        chatPanel.setBorder(new EmptyBorder(16, 0, 8, 0));
+
+        scrollPane = new JScrollPane(chatPanel);
+        scrollPane.setBorder(BorderFactory.createEmptyBorder());
+        scrollPane.setBackground(BG_DEEP);
+        scrollPane.getViewport().setBackground(BG_DEEP);
+        scrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        scrollPane.getVerticalScrollBar().setUnitIncrement(20);
+
+        // Track scroll position for auto-scroll
+        scrollPane.getVerticalScrollBar().addAdjustmentListener(e -> {
+            JScrollBar sb = scrollPane.getVerticalScrollBar();
+            autoScroll = (sb.getValue() + sb.getVisibleAmount() >= sb.getMaximum() - 50);
+            updateScrollButton();
+        });
+
+        // Enhanced scrollbar styling
+        scrollPane.getVerticalScrollBar().setUI(new javax.swing.plaf.basic.BasicScrollBarUI() {
+            @Override protected void configureScrollBarColors() {
+                thumbColor     = new Color(65, 73, 83);
+                thumbDarkShadowColor = new Color(70, 78, 88);
+                thumbHighlightColor = new Color(60, 68, 78);
+                trackColor     = BG_DEEP;
+            }
+            @Override protected JButton createDecreaseButton(int o) { return zeroButton(); }
+            @Override protected JButton createIncreaseButton(int o) { return zeroButton(); }
+            private JButton zeroButton() {
+                JButton b = new JButton(); b.setPreferredSize(new Dimension(0,0)); return b;
+            }
+            @Override protected void paintThumb(Graphics g, JComponent c, Rectangle r) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(thumbColor);
+                g2.fillRoundRect(r.x + 2, r.y, r.width - 4, r.height, 6, 6);
+                g2.dispose();
+            }
+        });
+
+        return scrollPane;
+    }
+
+    private JPanel buildInputBar() {
+        JPanel bar = new JPanel(new BorderLayout(10, 0));
+        bar.setBackground(BG_SURFACE);
+        bar.setBorder(new CompoundBorder(
+                new MatteBorder(1, 0, 0, 0, BORDER_C),
+                new EmptyBorder(14, 18, 14, 18)));
+
+        // Input wrapper with enhanced rounded look and shadow
+        JPanel inputWrapper = new JPanel(new BorderLayout()) {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                
+                // Subtle shadow
+                g2.setColor(SHADOW);
+                g2.fillRoundRect(1, 2, getWidth()-2, getHeight()-2, 12, 12);
+                
+                // Background
+                g2.setColor(BG_INPUT);
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 12, 12);
+                
+                // Border with slight gradient effect
+                if (inputField.isFocusOwner()) {
+                    g2.setColor(ACCENT);
+                } else {
+                    g2.setColor(BORDER_C);
+                }
+                g2.drawRoundRect(0, 0, getWidth()-1, getHeight()-1, 12, 12);
+                g2.dispose();
+            }
+        };
+        inputWrapper.setOpaque(false);
+        inputWrapper.setBorder(new EmptyBorder(10, 16, 10, 16));
+
+        inputField = new JTextField();
+        inputField.setOpaque(false);
+        inputField.setBorder(BorderFactory.createEmptyBorder());
+        inputField.setFont(new Font("Dialog", Font.PLAIN, 14));
+        inputField.setForeground(TEXT_PRI);
+        inputField.setCaretColor(ACCENT);
+        inputField.putClientProperty("caretWidth", 2);
+        inputField.setEnabled(false); // Start disabled until connected
+
+        // Enhanced placeholder text
+        inputField.setText("Connect to start chatting...");
+        inputField.setForeground(TEXT_MUT);
+        
+        inputField.addFocusListener(new FocusAdapter() {
+            @Override public void focusGained(FocusEvent e) {
+                if (inputField.getForeground().equals(TEXT_MUT)) {
+                    inputField.setText("");
+                    inputField.setForeground(TEXT_PRI);
+                }
+                inputWrapper.repaint();
+            }
+            @Override public void focusLost(FocusEvent e) {
+                inputWrapper.repaint();
+            }
+        });
+
+        // Character counter
+        JLabel charCounter = new JLabel("0/" + MAX_CHARS);
+        charCounter.setFont(new Font("Dialog", Font.PLAIN, 10));
+        charCounter.setForeground(TEXT_MUT);
+        charCounter.setBorder(new EmptyBorder(0, 8, 0, 0));
+
+        inputField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void update() {
+                String text = inputField.getText();
+                charCount = text.length();
+                charCounter.setText(charCount + "/" + MAX_CHARS);
+                if (charCount > MAX_CHARS * 0.9) {
+                    charCounter.setForeground(new Color(248, 81, 73));
+                } else if (charCount > MAX_CHARS * 0.7) {
+                    charCounter.setForeground(DM_COLOR);
+                } else {
+                    charCounter.setForeground(TEXT_MUT);
+                }
+            }
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { update(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { update(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { update(); }
+        });
+
+        JPanel inputAndCounter = new JPanel(new BorderLayout());
+        inputAndCounter.setOpaque(false);
+        inputAndCounter.add(inputField, BorderLayout.CENTER);
+        inputAndCounter.add(charCounter, BorderLayout.EAST);
+        inputWrapper.add(inputAndCounter, BorderLayout.CENTER);
+
+        // Enhanced Send button with better hover effect
+        sendButton = new JButton("Send") {
+            private Color currentBg = ACCENT;
+            
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                
+                // Subtle shadow
+                g2.setColor(new Color(0, 0, 0, 40));
+                g2.fillRoundRect(1, 2, getWidth()-1, getHeight()-2, 10, 10);
+                
+                // Button background
+                g2.setColor(currentBg);
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
+                
+                // Text
+                g2.setColor(Color.WHITE);
+                g2.setFont(getFont());
+                FontMetrics fm = g2.getFontMetrics();
+                int x = (getWidth()  - fm.stringWidth(getText())) / 2;
+                int y = (getHeight() + fm.getAscent() - fm.getDescent()) / 2;
+                g2.drawString(getText(), x, y);
+                g2.dispose();
+            }
+        };
+        sendButton.setFont(new Font("Dialog", Font.BOLD, 13));
+        sendButton.setPreferredSize(new Dimension(80, 40));
+        sendButton.setBorderPainted(false);
+        sendButton.setContentAreaFilled(false);
+        sendButton.setFocusPainted(false);
+        sendButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        
+        // Smooth color transitions on hover
+        sendButton.addMouseListener(new MouseAdapter() {
+            javax.swing.Timer timer;
+            @Override public void mouseEntered(MouseEvent e) {
+                animateButtonColor(sendButton, ACCENT, ACCENT_HOVER);
+            }
+            @Override public void mouseExited(MouseEvent e) {
+                animateButtonColor(sendButton, ACCENT_HOVER, ACCENT);
+            }
+            @Override public void mousePressed(MouseEvent e) {
+                animateButtonColor(sendButton, ACCENT_HOVER, ACCENT2);
+            }
+            @Override public void mouseReleased(MouseEvent e) {
+                animateButtonColor(sendButton, ACCENT2, ACCENT_HOVER);
+            }
+        });
+
+        sendButton.addActionListener(e -> sendMessage());
+        inputField.addActionListener(e -> sendMessage());
+
+        bar.add(inputWrapper, BorderLayout.CENTER);
+        bar.add(sendButton,   BorderLayout.EAST);
+
+        return bar;
+    }
+    
+    /** Smooth color animation for buttons */
+    private void animateButtonColor(JButton button, Color from, Color to) {
+        javax.swing.Timer timer = new javax.swing.Timer(15, null);
+        final int steps = 10;
+        final int[] step = {0};
+
+        timer.addActionListener(e -> {
+            step[0]++;
+            float progress = Math.min((float) step[0] / steps, 1.0f);
+            int r = (int) (from.getRed()   + (to.getRed()   - from.getRed())   * progress);
+            int g = (int) (from.getGreen() + (to.getGreen() - from.getGreen()) * progress);
+            int b = (int) (from.getBlue()  + (to.getBlue()  - from.getBlue())  * progress);
+        
+            button.setForeground(new Color(r, g, b)); // use foreground as color carrier
+            button.repaint();
+
+            if (step[0] >= steps) timer.stop();
+        });
+        timer.start();
+    }   
+
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // MESSAGE RENDERING
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private void appendMessage(String raw) {
+        SwingUtilities.invokeLater(() -> {
+            JPanel row = buildMessageRow(raw);
+            
+            // Fade-in animation
+            row.setOpaque(false);
+            final float[] alpha = {0.0f};
+            final JPanel finalRow = row;
+            
+            chatPanel.add(row);
+            chatPanel.add(Box.createVerticalStrut(3));
+            chatPanel.revalidate();
+            
+            // Animate fade-in
+            javax.swing.Timer fadeTimer = new javax.swing.Timer(20, null);
+            fadeTimer.addActionListener(e -> {
+                alpha[0] += 0.1f;
+                if (alpha[0] >= 1.0f) {
+                    alpha[0] = 1.0f;
+                    fadeTimer.stop();
+                }
+                finalRow.repaint();
+                chatPanel.repaint();
+            });
+            fadeTimer.start();
+            
+            // Auto-scroll to bottom if enabled
+            if (autoScroll) {
+                SwingUtilities.invokeLater(() -> {
+                    JScrollBar sb = scrollPane.getVerticalScrollBar();
+                    sb.setValue(sb.getMaximum());
+                });
+            }
+        });
+    }
+
+    private JPanel buildMessageRow(String raw) {
+        // Detect message type
+        boolean isSys = raw.startsWith("[") && raw.contains("has joined") ||
+                        raw.startsWith("[") && raw.contains("has left") ||
+                        raw.startsWith("Enter your") ||
+                        raw.startsWith("Starting");
+        boolean isDM  = raw.startsWith("[DM from") || raw.startsWith("[Server]");
+        boolean isMine = !myUsername.isEmpty() && raw.startsWith(myUsername + ": ");
+
+        if (isSys) return buildSystemMessage(raw);
+        if (isDM)  return buildDMMessage(raw);
+        return buildChatMessage(raw, isMine);
+    }
+
+    private JPanel buildSystemMessage(String text) {
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 6));
+        row.setOpaque(false);
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
+
+        JLabel lbl = new JLabel(text);
+        lbl.setFont(new Font("Dialog", Font.PLAIN, 11));
+        lbl.setForeground(SYS_COLOR);
+        row.add(lbl);
+        return row;
+    }
+
+    private JPanel buildDMMessage(String text) {
+        JPanel outer = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 4));
+        outer.setOpaque(false);
+        outer.setMaximumSize(new Dimension(Integer.MAX_VALUE, 60));
+
+        JPanel bubble = new JPanel(new BorderLayout()) {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(new Color(45, 35, 15));
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
+                g2.setColor(new Color(90, 65, 15));
+                g2.drawRoundRect(0, 0, getWidth()-1, getHeight()-1, 8, 8);
+                g2.dispose();
+            }
+        };
+        bubble.setOpaque(false);
+        bubble.setBorder(new EmptyBorder(6, 12, 6, 12));
+
+        JLabel lbl = new JLabel(text);
+        lbl.setFont(new Font("Dialog", Font.PLAIN, 12));
+        lbl.setForeground(DM_COLOR);
+        bubble.add(lbl);
+        outer.add(bubble);
+        return outer;
+    }
+
+    private JPanel buildChatMessage(String text, boolean isMine) {
+        JPanel row = new JPanel(new BorderLayout(10, 0));
+        row.setOpaque(false);
+        row.setBorder(new EmptyBorder(3, 18, 3, 18));
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 120));
+
+        // Parse "username: message"
+        String sender  = "";
+        String content = text;
+        int colon = text.indexOf(": ");
+        if (colon > 0) {
+            sender  = text.substring(0, colon);
+            content = text.substring(colon + 2);
+        }
+
+        // Avatar
+        JPanel avatar = buildAvatar(sender.isEmpty() ? "?" : String.valueOf(sender.charAt(0)));
+
+        // Message bubble with hover effect
+        JPanel bubble = new JPanel() {
+            private boolean hovered = false;
+            
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                
+                // Subtle shadow for depth
+                g2.setColor(SHADOW);
+                g2.fillRoundRect(1, 2, getWidth()-2, getHeight()-2, 14, 14);
+                
+                // Background with hover effect
+                Color bg = isMine ? MSG_SELF : (hovered ? MSG_HOVER : MSG_OTHER);
+                g2.setColor(bg);
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 14, 14);
+                g2.dispose();
+            }
+        };
+        bubble.setOpaque(false);
+        bubble.setLayout(new BoxLayout(bubble, BoxLayout.Y_AXIS));
+        bubble.setBorder(new EmptyBorder(10, 14, 10, 14));
+        
+        // Add hover listener
+        bubble.addMouseListener(new MouseAdapter() {
+            @Override public void mouseEntered(MouseEvent e) {
+                try {
+                    java.lang.reflect.Field field = bubble.getClass().getDeclaredField("hovered");
+                    field.setAccessible(true);
+                    field.setBoolean(bubble, true);
+                    bubble.repaint();
+                } catch (Exception ex) {}
+            }
+            @Override public void mouseExited(MouseEvent e) {
+                try {
+                    java.lang.reflect.Field field = bubble.getClass().getDeclaredField("hovered");
+                    field.setAccessible(true);
+                    field.setBoolean(bubble, false);
+                    bubble.repaint();
+                } catch (Exception ex) {}
+            }
+        });
+
+        // Sender name and timestamp row
+        if (!sender.isEmpty()) {
+            JPanel headerRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+            headerRow.setOpaque(false);
+            headerRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+            
+            JLabel senderLbl = new JLabel(sender);
+            senderLbl.setFont(new Font("Dialog", Font.BOLD, 12));
+            senderLbl.setForeground(isMine ? new Color(180, 210, 255) : ACCENT);
+            
+            JLabel timeLbl = new JLabel("  •  " + timeFormat.format(new Date()));
+            timeLbl.setFont(new Font("Dialog", Font.PLAIN, 10));
+            timeLbl.setForeground(TEXT_TIME);
+            
+            headerRow.add(senderLbl);
+            headerRow.add(timeLbl);
+            bubble.add(headerRow);
+            bubble.add(Box.createVerticalStrut(4));
+        }
+
+        JTextArea msgText = new JTextArea(content);
+        msgText.setFont(new Font("Dialog", Font.PLAIN, 14));
+        msgText.setForeground(TEXT_PRI);
+        msgText.setOpaque(false);
+        msgText.setEditable(false);
+        msgText.setFocusable(false);
+        msgText.setLineWrap(true);
+        msgText.setWrapStyleWord(true);
+        msgText.setAlignmentX(Component.LEFT_ALIGNMENT);
+        msgText.setBorder(BorderFactory.createEmptyBorder());
+        msgText.setMaximumSize(new Dimension(520, Integer.MAX_VALUE));
+        bubble.add(msgText);
+
+        JPanel bubbleWrapper = new JPanel(new FlowLayout(
+                isMine ? FlowLayout.RIGHT : FlowLayout.LEFT, 0, 0));
+        bubbleWrapper.setOpaque(false);
+        bubbleWrapper.add(bubble);
+
+        if (!isMine) {
+            row.add(avatar,        BorderLayout.WEST);
+            row.add(bubbleWrapper, BorderLayout.CENTER);
+        } else {
+            row.add(bubbleWrapper, BorderLayout.CENTER);
+        }
+
+        return row;
+    }
+
+    private JPanel buildAvatar(String initial) {
+        JPanel av = new JPanel() {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                
+                // Subtle shadow
+                g2.setColor(new Color(0, 0, 0, 30));
+                g2.fillOval(1, 2, 34, 34);
+                
+                // Generate color from initial
+                int hash = initial.hashCode();
+                Color[] palette = {
+                    new Color(88,166,255), new Color(63,185,80),
+                    new Color(210,153,34), new Color(248,81,73),
+                    new Color(163,113,247), new Color(245,158,11)
+                };
+                g2.setColor(palette[Math.abs(hash) % palette.length]);
+                g2.fillOval(0, 0, 34, 34);
+                
+                // White text
+                g2.setColor(Color.WHITE);
+                g2.setFont(new Font("Dialog", Font.BOLD, 14));
+                FontMetrics fm = g2.getFontMetrics();
+                String s = initial.toUpperCase();
+                g2.drawString(s, (34 - fm.stringWidth(s))/2, (34 + fm.getAscent() - fm.getDescent())/2);
+                g2.dispose();
+            }
+            @Override public Dimension getPreferredSize() { return new Dimension(34, 34); }
+            @Override public Dimension getMinimumSize()   { return new Dimension(34, 34); }
+        };
+        av.setOpaque(false);
+        JPanel wrapper = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 4));
+        wrapper.setOpaque(false);
+        wrapper.setPreferredSize(new Dimension(46, 42));
+        wrapper.add(av);
+        return wrapper;
+    }
+
+    private void addUserToSidebar(String username) {
+        SwingUtilities.invokeLater(() -> {
+            JPanel entry = new JPanel(new FlowLayout(FlowLayout.LEFT, 14, 8)) {
+                private boolean hovered = false;
+                
+                @Override protected void paintComponent(Graphics g) {
+                    if (hovered) {
+                        Graphics2D g2 = (Graphics2D) g.create();
+                        g2.setColor(new Color(30, 35, 42));
+                        g2.fillRoundRect(4, 2, getWidth()-8, getHeight()-4, 8, 8);
+                        g2.dispose();
+                    }
+                    super.paintComponent(g);
+                }
+            };
+            entry.setOpaque(false);
+            entry.setMaximumSize(new Dimension(Integer.MAX_VALUE, 38));
+            entry.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+
+            JLabel dot = new JLabel("●");
+            dot.setFont(new Font("Dialog", Font.PLAIN, 9));
+            dot.setForeground(ONLINE);
+
+            JLabel name = new JLabel(username);
+            name.setFont(new Font("Dialog", Font.PLAIN, 13));
+            name.setForeground(TEXT_PRI);
+
+            entry.add(dot);
+            entry.add(name);
+            entry.setName(username);
+            
+            // Hover effect
+            entry.addMouseListener(new MouseAdapter() {
+                @Override public void mouseEntered(MouseEvent e) {
+                    try {
+                        java.lang.reflect.Field field = entry.getClass().getDeclaredField("hovered");
+                        field.setAccessible(true);
+                        field.setBoolean(entry, true);
+                        entry.repaint();
+                        name.setForeground(ACCENT);
+                    } catch (Exception ex) {}
+                }
+                @Override public void mouseExited(MouseEvent e) {
+                    try {
+                        java.lang.reflect.Field field = entry.getClass().getDeclaredField("hovered");
+                        field.setAccessible(true);
+                        field.setBoolean(entry, false);
+                        entry.repaint();
+                        name.setForeground(TEXT_PRI);
+                    } catch (Exception ex) {}
+                }
+            });
+
+            userListPanel.add(entry);
+            userListPanel.revalidate();
+        });
+    }
+
+    private void removeUserFromSidebar(String username) {
+        SwingUtilities.invokeLater(() -> {
+            for (Component c : userListPanel.getComponents()) {
+                if (username.equals(c.getName())) {
+                    userListPanel.remove(c);
+                    break;
+                }
+            }
+            userListPanel.revalidate();
+            userListPanel.repaint();
+        });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // NETWORK
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private void toggleConnection() {
+        if (isConnected) {
+            disconnectFromServer();
+        } else {
+            connectToServer(serverHost, serverPort);
+        }
+    }
+
+    private void connectToServer(String host, int port) {
+        try {
+            setStatus("● connecting...", TEXT_MUT);
+            connectionButton.setEnabled(false);
+            
+            socket = new Socket(host, port);
+            out    = new PrintWriter(socket.getOutputStream(), true);
+            in     = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+
+            isConnected = true;
+            setStatus("● connected to " + host + ":" + port, ONLINE);
+            updateConnectionButton(true);
+            setInputEnabled(true);
+
+            listenerThread = new Thread(this::listenForMessages);
+            listenerThread.setDaemon(true);
+            listenerThread.start();
+
+        } catch (IOException e) {
+            isConnected = false;
+            setStatus("● connection failed", DISCONNECT_COLOR);
+            appendMessage("Could not connect to server: " + e.getMessage());
+            updateConnectionButton(false);
+            setInputEnabled(false);
+        }
+    }
+
+    private void disconnectFromServer() {
+        try {
+            isConnected = false;
+            
+            // Send quit command if connected
+            if (out != null) {
+                out.println("/quit");
+            }
+            
+            // Close all connections
+            if (socket != null && !socket.isClosed()) {
+                socket.close();
+            }
+            if (in != null) {
+                in.close();
+            }
+            if (out != null) {
+                out.close();
+            }
+            
+            setStatus("● disconnected", TEXT_MUT);
+            appendMessage("[Disconnected from server]");
+            updateConnectionButton(false);
+            setInputEnabled(false);
+            
+            // Clear user list except self
+            SwingUtilities.invokeLater(() -> {
+                userListPanel.removeAll();
+                if (!myUsername.isEmpty()) {
+                    addUserToSidebar(myUsername);
+                }
+                userListPanel.revalidate();
+                userListPanel.repaint();
+            });
+            
+        } catch (IOException e) {
+            appendMessage("Error during disconnect: " + e.getMessage());
+        }
+    }
+
+    private void updateConnectionButton(boolean connected) {
+        SwingUtilities.invokeLater(() -> {
+            connectionButton.setEnabled(true);
+            if (connected) {
+                connectionButton.setText("Disconnect");
+                try {
+                    java.lang.reflect.Field field = connectionButton.getClass().getDeclaredField("currentBg");
+                    field.setAccessible(true);
+                    field.set(connectionButton, DISCONNECT_COLOR);
+                } catch (Exception ex) {}
+            } else {
+                connectionButton.setText("Connect");
+                try {
+                    java.lang.reflect.Field field = connectionButton.getClass().getDeclaredField("currentBg");
+                    field.setAccessible(true);
+                    field.set(connectionButton, ACCENT);
+                } catch (Exception ex) {}
+            }
+            connectionButton.repaint();
+        });
+    }
+
+    private void setInputEnabled(boolean enabled) {
+        SwingUtilities.invokeLater(() -> {
+            inputField.setEnabled(enabled);
+            sendButton.setEnabled(enabled);
+            if (enabled) {
+                inputField.setText("Message #general  •  /msg <user> <text> for DM  •  /quit to exit");
+                inputField.setForeground(TEXT_MUT);
+            } else {
+                inputField.setText("Connect to start chatting...");
+                inputField.setForeground(TEXT_MUT);
+            }
+        });
+    }
+
+    private void listenForMessages() {
+        try {
+            String message;
+            while (isConnected && (message = in.readLine()) != null) {
+                final String msg = message;
+
+                // Capture username from server prompt response
+                if (msg.startsWith("Enter your username")) {
+                    appendMessage(msg);
+                    continue;
+                }
+
+                // Detect join/leave for sidebar updates
+                if (msg.contains("has joined the chat")) {
+                    String user = msg.replace("[", "").replace(" has joined the chat]", "").trim();
+                    if (!user.equals(myUsername)) addUserToSidebar(user);
+                }
+                if (msg.contains("has left the chat")) {
+                    String user = msg.replace("[", "").replace(" has left the chat]", "").trim();
+                    removeUserFromSidebar(user);
+                }
+
+                appendMessage(msg);
+            }
+        } catch (IOException e) {
+            if (isConnected) {
+                isConnected = false;
+                setStatus("● disconnected", DISCONNECT_COLOR);
+                appendMessage("[Disconnected from server]");
+                updateConnectionButton(false);
+                setInputEnabled(false);
+            }
+        }
+    }
+
+    private void sendMessage() {
+        String text = inputField.getText().trim();
+        if (text.isEmpty() || inputField.getForeground().equals(TEXT_MUT)) return;
+        
+        if (!isConnected) {
+            appendMessage("[Not connected. Click 'Connect' button to join the chat.]");
+            return;
+        }
+
+        // Capture username on first message
+        if (myUsername.isEmpty() && !text.startsWith("/")) {
+            myUsername = text;
+            userLabel.setText(myUsername);
+            addUserToSidebar(myUsername);
+        }
+
+        if (out != null) out.println(text);
+        inputField.setText("");
+    }
+
+    private void setStatus(String text, Color color) {
+        SwingUtilities.invokeLater(() -> {
+            statusLabel.setText(text);
+            statusLabel.setForeground(color);
+        });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // MAIN
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public static void main(String[] args) {
+        // Use system look for native decorations, override colors ourselves
+        try { UIManager.setLookAndFeel(UIManager.getCrossPlatformLookAndFeelClassName()); }
+        catch (Exception ignored) {}
+
+        String host = (args.length > 0) ? args[0] : "localhost";
+        int port    = (args.length > 1) ? Integer.parseInt(args[1]) : 5000;
+
+        SwingUtilities.invokeLater(() -> new SwingClient(host, port));
+    }
+}
