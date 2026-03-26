@@ -10,34 +10,28 @@ import java.awt.image.BufferedImage;
 import java.io.*;
 import java.net.Socket;
 
-/**
- * SwingClient - Modern dark-theme GUI client.
- *
- * OOP Concept - Inheritance: extends JFrame to build the UI.
- * OOP Concept - Threads: listener thread receives messages
- * without blocking the Swing Event Dispatch Thread (EDT).
- * UI updates dispatched via SwingUtilities.invokeLater().
- */
+
 public class SwingClient extends JFrame {
 
-    // ── Palette ──────────────────────────────────────────────────────────────
-    private static final Color BG_DEEP    = new Color(13,  17,  23);
-    private static final Color BG_SURFACE = new Color(22,  27,  34);
-    private static final Color BG_CARD    = new Color(30,  37,  46);
-    private static final Color BG_INPUT   = new Color(38,  46,  57);
+    // Palette──────────────────────────────────────────────────────────────
+    private static final Color BG_DEEP    = new Color(32,  36,  42);   
+    private static final Color BG_SURFACE = new Color(40,  44,  52);
+    private static final Color BG_CARD    = new Color(48,  52,  60);
+    private static final Color BG_INPUT   = new Color(55,  60,  70);
     private static final Color ACCENT     = new Color(88, 166, 255);
     private static final Color ACCENT2    = new Color(56, 139, 253);
     private static final Color TEXT_PRI   = new Color(230, 237, 243);
     private static final Color TEXT_SEC   = new Color(125, 133, 144);
-    private static final Color TEXT_MUT   = new Color(72,  79,  88);
+    private static final Color TEXT_MUT   = new Color(90,  96, 105);
     private static final Color ONLINE     = new Color(35, 197, 94);
-    private static final Color MSG_SELF   = new Color(31,  111, 235);
-    private static final Color MSG_OTHER  = new Color(33,  38,  45);
+    private static final Color MSG_SELF   = new Color(79, 140, 255);   
+    private static final Color MSG_OTHER  = new Color(55,  60,  68);
     private static final Color BORDER_C   = new Color(48,  54,  61);
     private static final Color DM_COLOR   = new Color(245, 158, 11);
     private static final Color SYS_COLOR  = new Color(88, 166, 255);
+    private static final Color TIME_COLOR = new Color(100, 108, 120);
 
-    // ── Components ────────────────────────────────────────────────────────────
+    // Component 
     private JPanel  chatPanel;
     private JScrollPane scrollPane;
     private JTextField  inputField;
@@ -45,22 +39,24 @@ public class SwingClient extends JFrame {
     private JLabel      statusLabel;
     private JLabel      userLabel;
     private JPanel      userListPanel;
+    private JLabel      typingLabel;
 
-    // ── Network ───────────────────────────────────────────────────────────────
+    // Network 
     private PrintWriter  out;
     private BufferedReader in;
     private Socket       socket;
     private String       myUsername = "";
+
+    private boolean isTyping = false;
+    private javax.swing.Timer typingTimer;
+    private java.util.Set<String> typingUsers = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     public SwingClient(String host, int port) {
         buildUI();
         connectToServer(host, port);
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
     // UI CONSTRUCTION
-    // ─────────────────────────────────────────────────────────────────────────
-
     private void buildUI() {
         setTitle("ChatApp");
         setSize(860, 620);
@@ -68,7 +64,6 @@ public class SwingClient extends JFrame {
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         setBackground(BG_DEEP);
 
-        // Custom title bar feel
         getRootPane().setBorder(BorderFactory.createLineBorder(BORDER_C, 1));
 
         JPanel root = new JPanel(new BorderLayout(0, 0));
@@ -89,13 +84,11 @@ public class SwingClient extends JFrame {
         setVisible(true);
     }
 
-    /** Left sidebar — app name + online users */
     private JPanel buildSidebar() {
         JPanel sidebar = new JPanel(new BorderLayout(0, 0));
         sidebar.setPreferredSize(new Dimension(200, 0));
         sidebar.setBackground(BG_SURFACE);
         sidebar.setBorder(new MatteBorder(0, 0, 0, 1, BORDER_C));
-
         // Logo area
         JPanel logo = new JPanel(new FlowLayout(FlowLayout.LEFT, 16, 14));
         logo.setBackground(BG_SURFACE);
@@ -112,7 +105,6 @@ public class SwingClient extends JFrame {
         logo.add(dot);
         logo.add(title);
 
-        // Section header
         JPanel secHeader = new JPanel(new FlowLayout(FlowLayout.LEFT, 14, 8));
         secHeader.setBackground(BG_SURFACE);
         JLabel secLabel = new JLabel("ONLINE");
@@ -120,7 +112,6 @@ public class SwingClient extends JFrame {
         secLabel.setForeground(TEXT_MUT);
         secHeader.add(secLabel);
 
-        // User list
         userListPanel = new JPanel();
         userListPanel.setLayout(new BoxLayout(userListPanel, BoxLayout.Y_AXIS));
         userListPanel.setBackground(BG_SURFACE);
@@ -139,7 +130,6 @@ public class SwingClient extends JFrame {
         sidebar.add(top,        BorderLayout.NORTH);
         sidebar.add(userScroll, BorderLayout.CENTER);
 
-        // Bottom — current user info
         JPanel myInfo = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 10));
         myInfo.setBackground(new Color(17, 21, 28));
         myInfo.setBorder(new MatteBorder(1, 0, 0, 0, BORDER_C));
@@ -159,7 +149,7 @@ public class SwingClient extends JFrame {
         return sidebar;
     }
 
-    /** Main chat area — header + messages + input */
+ 
     private JPanel buildChatArea() {
         JPanel area = new JPanel(new BorderLayout(0, 0));
         area.setBackground(BG_DEEP);
@@ -215,7 +205,6 @@ public class SwingClient extends JFrame {
         scrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         scrollPane.getVerticalScrollBar().setUnitIncrement(16);
 
-        // Style scrollbar
         scrollPane.getVerticalScrollBar().setUI(new javax.swing.plaf.basic.BasicScrollBarUI() {
             @Override protected void configureScrollBarColors() {
                 thumbColor     = new Color(60, 68, 78);
@@ -236,9 +225,14 @@ public class SwingClient extends JFrame {
         bar.setBackground(BG_SURFACE);
         bar.setBorder(new CompoundBorder(
                 new MatteBorder(1, 0, 0, 0, BORDER_C),
-                new EmptyBorder(12, 16, 12, 16)));
+                new EmptyBorder(8, 16, 12, 16)));
 
-        // Input wrapper with rounded look
+
+        typingLabel = new JLabel(" ");
+        typingLabel.setFont(new Font("Dialog", Font.ITALIC, 11));
+        typingLabel.setForeground(TEXT_SEC);
+        typingLabel.setBorder(new EmptyBorder(0, 4, 4, 0));
+
         JPanel inputWrapper = new JPanel(new BorderLayout()) {
             @Override protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
@@ -273,9 +267,23 @@ public class SwingClient extends JFrame {
             }
         });
 
+        inputField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            @Override public void insertUpdate(javax.swing.event.DocumentEvent e) { onTyping(); }
+            @Override public void removeUpdate(javax.swing.event.DocumentEvent e) { onTyping(); }
+            @Override public void changedUpdate(javax.swing.event.DocumentEvent e) { onTyping(); }
+        });
+
+        typingTimer = new javax.swing.Timer(2000, e -> {
+            if (isTyping && out != null) {
+                out.println("/stoptyping");
+                isTyping = false;
+            }
+        });
+        typingTimer.setRepeats(false);
+
         inputWrapper.add(inputField, BorderLayout.CENTER);
 
-        // Send button
+
         sendButton = new JButton("Send") {
             @Override protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
@@ -303,16 +311,39 @@ public class SwingClient extends JFrame {
         sendButton.addActionListener(e -> sendMessage());
         inputField.addActionListener(e -> sendMessage());
 
-        bar.add(inputWrapper, BorderLayout.CENTER);
-        bar.add(sendButton,   BorderLayout.EAST);
+        JPanel inputRow = new JPanel(new BorderLayout(10, 0));
+        inputRow.setOpaque(false);
+        inputRow.add(inputWrapper, BorderLayout.CENTER);
+        inputRow.add(sendButton,   BorderLayout.EAST);
+
+        bar.add(typingLabel, BorderLayout.NORTH);
+        bar.add(inputRow,    BorderLayout.CENTER);
 
         return bar;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // MESSAGE RENDERING
-    // ─────────────────────────────────────────────────────────────────────────
+    private void onTyping() {
+        if (inputField.getForeground().equals(TEXT_MUT)) return; 
+        if (!isTyping && out != null && !myUsername.isEmpty()) {
+            out.println("/typing");
+            isTyping = true;
+        }
+        typingTimer.restart();
+    }
 
+    private void updateTypingLabel() {
+        SwingUtilities.invokeLater(() -> {
+            if (typingUsers.isEmpty()) {
+                typingLabel.setText(" ");
+            } else if (typingUsers.size() == 1) {
+                typingLabel.setText(typingUsers.iterator().next() + " is typing...");
+            } else {
+                typingLabel.setText(typingUsers.size() + " people are typing...");
+            }
+        });
+    }
+
+    // MESSAGE RENDERING
     private void appendMessage(String raw) {
         SwingUtilities.invokeLater(() -> {
             JPanel row = buildMessageRow(raw);
@@ -320,7 +351,7 @@ public class SwingClient extends JFrame {
             chatPanel.add(Box.createVerticalStrut(2));
             chatPanel.revalidate();
             chatPanel.repaint();
-            // Auto-scroll to bottom
+
             SwingUtilities.invokeLater(() -> {
                 JScrollBar sb = scrollPane.getVerticalScrollBar();
                 sb.setValue(sb.getMaximum());
@@ -329,13 +360,16 @@ public class SwingClient extends JFrame {
     }
 
     private JPanel buildMessageRow(String raw) {
-        // Detect message type
+
         boolean isSys = raw.startsWith("[") && raw.contains("has joined") ||
                         raw.startsWith("[") && raw.contains("has left") ||
                         raw.startsWith("Enter your") ||
                         raw.startsWith("Starting");
-        boolean isDM  = raw.startsWith("[DM from") || raw.startsWith("[Server]");
-        boolean isMine = !myUsername.isEmpty() && raw.startsWith(myUsername + ": ");
+        boolean isDM  = raw.startsWith("[DM from") || raw.startsWith("[DM to") || raw.startsWith("[Server]");
+        // Check if message is from self (with or without timestamp prefix)
+        boolean isMine = !myUsername.isEmpty() && 
+                        (raw.startsWith(myUsername + ": ") || 
+                         raw.contains("] " + myUsername + ": "));
 
         if (isSys) return buildSystemMessage(raw);
         if (isDM)  return buildDMMessage(raw);
@@ -355,28 +389,90 @@ public class SwingClient extends JFrame {
     }
 
     private JPanel buildDMMessage(String text) {
-        JPanel outer = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 4));
-        outer.setOpaque(false);
-        outer.setMaximumSize(new Dimension(Integer.MAX_VALUE, 60));
+        // Parse DM format: "[DM from/to user] [HH:mm]: message"
+        boolean isOutgoing = text.startsWith("[DM to ");
+        String user = "";
+        String timestamp = "";
+        String message = text;
 
-        JPanel bubble = new JPanel(new BorderLayout()) {
+        // Extract user
+        int userStart = text.indexOf("[DM ") + 4;
+        int userEnd = text.indexOf("]");
+        if (userStart > 4 && userEnd > userStart) {
+            String userPart = text.substring(userStart, userEnd);
+            if (userPart.startsWith("from ")) user = userPart.substring(5);
+            else if (userPart.startsWith("to ")) user = userPart.substring(3);
+        }
+
+        // Extract timestamp and message
+        int tsStart = text.indexOf("] [") + 3;
+        int tsEnd = text.indexOf("]:", tsStart);
+        if (tsStart > 3 && tsEnd > tsStart) {
+            timestamp = text.substring(tsStart, tsEnd);
+            message = text.substring(tsEnd + 3).trim();
+        } else {
+            // Fallback: old format without timestamp
+            int msgStart = text.indexOf("]: ");
+            if (msgStart > 0) message = text.substring(msgStart + 3);
+        }
+
+        JPanel outer = new JPanel(new FlowLayout(isOutgoing ? FlowLayout.RIGHT : FlowLayout.LEFT, 16, 4));
+        outer.setOpaque(false);
+        outer.setMaximumSize(new Dimension(Integer.MAX_VALUE, 80));
+
+        JPanel bubble = new JPanel() {
             @Override protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(new Color(45, 35, 15));
-                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
-                g2.setColor(new Color(90, 65, 15));
-                g2.drawRoundRect(0, 0, getWidth()-1, getHeight()-1, 8, 8);
+                g2.setColor(isOutgoing ? new Color(50, 45, 25) : new Color(45, 35, 15));
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
+                g2.setColor(new Color(100, 80, 30));
+                g2.drawRoundRect(0, 0, getWidth()-1, getHeight()-1, 10, 10);
                 g2.dispose();
             }
         };
+        bubble.setLayout(new BoxLayout(bubble, BoxLayout.Y_AXIS));
         bubble.setOpaque(false);
-        bubble.setBorder(new EmptyBorder(6, 12, 6, 12));
+        bubble.setBorder(new EmptyBorder(8, 12, 8, 12));
 
-        JLabel lbl = new JLabel(text);
-        lbl.setFont(new Font("Dialog", Font.PLAIN, 12));
-        lbl.setForeground(DM_COLOR);
-        bubble.add(lbl);
+        // Header with direction, user, and timestamp
+        JPanel header = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        header.setOpaque(false);
+        header.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        JLabel dirLabel = new JLabel(isOutgoing ? "To" : "From");
+        dirLabel.setFont(new Font("Dialog", Font.PLAIN, 10));
+        dirLabel.setForeground(TEXT_SEC);
+        header.add(dirLabel);
+
+        JLabel userLabel = new JLabel(user);
+        userLabel.setFont(new Font("Dialog", Font.BOLD, 11));
+        userLabel.setForeground(DM_COLOR);
+        header.add(userLabel);
+
+        if (!timestamp.isEmpty()) {
+            JLabel timeLabel = new JLabel(timestamp);
+            timeLabel.setFont(new Font("Dialog", Font.PLAIN, 10));
+            timeLabel.setForeground(TIME_COLOR);
+            header.add(timeLabel);
+        }
+
+        bubble.add(header);
+        bubble.add(Box.createVerticalStrut(3));
+
+        JTextArea msgText = new JTextArea(message);
+        msgText.setFont(new Font("Dialog", Font.PLAIN, 12));
+        msgText.setForeground(new Color(255, 220, 150));
+        msgText.setOpaque(false);
+        msgText.setEditable(false);
+        msgText.setFocusable(false);
+        msgText.setLineWrap(true);
+        msgText.setWrapStyleWord(true);
+        msgText.setAlignmentX(Component.LEFT_ALIGNMENT);
+        msgText.setBorder(BorderFactory.createEmptyBorder());
+        msgText.setMaximumSize(new Dimension(350, Integer.MAX_VALUE));
+        bubble.add(msgText);
+
         outer.add(bubble);
         return outer;
     }
@@ -385,19 +481,29 @@ public class SwingClient extends JFrame {
         JPanel row = new JPanel(new BorderLayout(10, 0));
         row.setOpaque(false);
         row.setBorder(new EmptyBorder(2, 16, 2, 16));
-        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 100));
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 120));
+
+        // Parse timestamp if present: "[HH:mm] username: message"
+        String timestamp = "";
+        String remaining = text;
+        if (text.startsWith("[") && text.length() > 7 && text.charAt(6) == ']') {
+            timestamp = text.substring(1, 6);  // "HH:mm"
+            remaining = text.substring(8);     // skip "] "
+        }
 
         // Parse "username: message"
         String sender  = "";
-        String content = text;
-        int colon = text.indexOf(": ");
+        String content = remaining;
+        int colon = remaining.indexOf(": ");
         if (colon > 0) {
-            sender  = text.substring(0, colon);
-            content = text.substring(colon + 2);
+            sender  = remaining.substring(0, colon);
+            content = remaining.substring(colon + 2);
         }
 
         // Avatar
         JPanel avatar = buildAvatar(sender.isEmpty() ? "?" : String.valueOf(sender.charAt(0)));
+
+        final String ts = timestamp;
 
         // Message bubble
         JPanel bubble = new JPanel() {
@@ -414,11 +520,23 @@ public class SwingClient extends JFrame {
         bubble.setBorder(new EmptyBorder(8, 12, 8, 12));
 
         if (!sender.isEmpty()) {
+            JPanel headerRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+            headerRow.setOpaque(false);
+            headerRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+
             JLabel senderLbl = new JLabel(sender);
             senderLbl.setFont(new Font("Dialog", Font.BOLD, 11));
             senderLbl.setForeground(isMine ? new Color(180, 210, 255) : ACCENT);
-            senderLbl.setAlignmentX(Component.LEFT_ALIGNMENT);
-            bubble.add(senderLbl);
+            headerRow.add(senderLbl);
+
+            if (!ts.isEmpty()) {
+                JLabel timeLbl = new JLabel(ts);
+                timeLbl.setFont(new Font("Dialog", Font.PLAIN, 10));
+                timeLbl.setForeground(TIME_COLOR);
+                headerRow.add(timeLbl);
+            }
+
+            bubble.add(headerRow);
             bubble.add(Box.createVerticalStrut(2));
         }
 
@@ -500,9 +618,32 @@ public class SwingClient extends JFrame {
             entry.add(name);
             entry.setName(username);
 
+            // Click to start DM with this user
+            entry.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            entry.addMouseListener(new MouseAdapter() {
+                @Override public void mouseClicked(MouseEvent e) {
+                    startDMWith(username);
+                }
+                @Override public void mouseEntered(MouseEvent e) {
+                    entry.setBackground(BG_CARD);
+                    entry.setOpaque(true);
+                }
+                @Override public void mouseExited(MouseEvent e) {
+                    entry.setOpaque(false);
+                }
+            });
+
             userListPanel.add(entry);
             userListPanel.revalidate();
         });
+    }
+
+    private void startDMWith(String username) {
+        if (username.equals(myUsername)) return;
+        inputField.setText("/msg " + username + " ");
+        inputField.setForeground(TEXT_PRI);
+        inputField.requestFocus();
+        inputField.setCaretPosition(inputField.getText().length());
     }
 
     private void removeUserFromSidebar(String username) {
@@ -552,14 +693,53 @@ public class SwingClient extends JFrame {
                     continue;
                 }
 
+                // Handle online users list from server
+                if (msg.startsWith("[ONLINE_USERS]")) {
+                    String userList = msg.substring(14); // skip "[ONLINE_USERS]"
+                    if (!userList.isEmpty()) {
+                        for (String user : userList.split(",")) {
+                            if (!user.trim().isEmpty() && !user.trim().equals(myUsername)) {
+                                addUserToSidebar(user.trim());
+                            }
+                        }
+                    }
+                    continue;
+                }
+
+                // Handle typing indicator signals
+                if (msg.startsWith("[TYPING]")) {
+                    String[] parts = msg.substring(8).split(":");
+                    if (parts.length == 2) {
+                        String user = parts[0];
+                        boolean typing = parts[1].equals("1");
+                        if (typing) {
+                            typingUsers.add(user);
+                        } else {
+                            typingUsers.remove(user);
+                        }
+                        updateTypingLabel();
+                    }
+                    continue;
+                }
+
                 // Detect join/leave for sidebar updates
                 if (msg.contains("has joined the chat")) {
-                    String user = msg.replace("[", "").replace(" has joined the chat]", "").trim();
-                    if (!user.equals(myUsername)) addUserToSidebar(user);
+                    // Format: "[username has joined the chat]"
+                    int start = msg.indexOf("[");
+                    int end = msg.indexOf(" has joined");
+                    if (start >= 0 && end > start) {
+                        String user = msg.substring(start + 1, end).trim();
+                        if (!user.equals(myUsername)) addUserToSidebar(user);
+                    }
                 }
                 if (msg.contains("has left the chat")) {
-                    String user = msg.replace("[", "").replace(" has left the chat]", "").trim();
-                    removeUserFromSidebar(user);
+                    // Format: "[username has left the chat]"
+                    int start = msg.indexOf("[");
+                    int end = msg.indexOf(" has left");
+                    if (start >= 0 && end > start) {
+                        String user = msg.substring(start + 1, end).trim();
+                        removeUserFromSidebar(user);
+                    }
                 }
 
                 appendMessage(msg);
@@ -573,6 +753,13 @@ public class SwingClient extends JFrame {
     private void sendMessage() {
         String text = inputField.getText().trim();
         if (text.isEmpty() || inputField.getForeground().equals(TEXT_MUT)) return;
+
+        // Stop typing indicator when message is sent
+        if (isTyping && out != null) {
+            out.println("/stoptyping");
+            isTyping = false;
+            typingTimer.stop();
+        }
 
         // Capture username on first message
         if (myUsername.isEmpty() && !text.startsWith("/")) {

@@ -10,9 +10,13 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.Socket;
 import java.net.SocketException;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 
 
 public class ClientHandler extends Thread implements ChatObserver {
+
+    private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm");
 
     private final Socket socket;
     private final ChatServer server;
@@ -38,6 +42,11 @@ public class ClientHandler extends Thread implements ChatObserver {
                 throw new ClientDisconnectException("unknown");
             }
 
+            java.util.List<String> onlineUsers = server.getOnlineUsers();
+            if (!onlineUsers.isEmpty()) {
+                out.println("[ONLINE_USERS]" + String.join(",", onlineUsers));
+            }
+
             server.register(this);
             server.broadcast("[" + username + " has joined the chat]");
 
@@ -57,10 +66,6 @@ public class ClientHandler extends Thread implements ChatObserver {
         }
     }
 
-    /**
-     * Listens for incoming messages from this client.
-     * Runs in a loop until client sends /quit or disconnects.
-     */
     private void listenForMessages() throws IOException {
         String message;
         while ((message = in.readLine()) != null) {
@@ -68,19 +73,25 @@ public class ClientHandler extends Thread implements ChatObserver {
                 System.out.println(username + " has quit.");
                 break;
             }
+
+            if (message.equals("/typing")) {
+                server.broadcastTyping(username, true);
+                continue;
+            }
+            if (message.equals("/stoptyping")) {
+                server.broadcastTyping(username, false);
+                continue;
+            }
             
             if (message.startsWith("/msg ")) {
                 handlePrivateMessage(message);
             } else {
-                server.broadcast(username + ": " + message);
+                String timestamp = LocalTime.now().format(TIME_FMT);
+                server.broadcast("[" + timestamp + "] " + username + ": " + message);
             }
         }
     }
 
-    /**
-     * Handles private direct messaging.
-     * Format: /msg <targetUsername> <message>
-     */
     private void handlePrivateMessage(String input) {
         String[] parts = input.split(" ", 3);
         if (parts.length < 3) {
@@ -89,16 +100,16 @@ public class ClientHandler extends Thread implements ChatObserver {
         }
         String targetUsername = parts[1];
         String privateMessage = parts[2];
-        boolean sent = server.sendPrivateMessage(username, targetUsername, privateMessage);
-        if (!sent) {
+        String timestamp = LocalTime.now().format(TIME_FMT);
+        boolean sent = server.sendPrivateMessage(username, targetUsername, privateMessage, timestamp);
+        if (sent) {
+            // Send confirmation to sender
+            out.println("[DM to " + targetUsername + "] [" + timestamp + "]: " + privateMessage);
+        } else {
             out.println("[Server] User '" + targetUsername + "' not found.");
         }
     }
 
-    /**
-     * OOP Concept - Polymorphism: called by ChatServer on every
-     * observer — sends the message to this client's socket.
-     */
     @Override
     public void update(String message) {
         if (out != null) {
@@ -106,7 +117,6 @@ public class ClientHandler extends Thread implements ChatObserver {
         }
     }
 
-    //Cleans up on disconnect — unregisters observer and closes socket.
     private void disconnect() {
         try {
             server.unregister(this);

@@ -74,16 +74,46 @@ public class ChatServer {
      * Sends a private message to a specific user by username.
      * Returns true if the target user was found, false otherwise.
      */
-    public boolean sendPrivateMessage(String from, String toUsername, String message) {
+    public boolean sendPrivateMessage(String from, String toUsername, String message, String timestamp) {
         for (ChatObserver observer : observers) {
             if (observer instanceof ClientHandler handler) {
                 if (handler.getUsername().equalsIgnoreCase(toUsername)) {
-                    handler.update("[DM from " + from + "]: " + message);
+                    handler.update("[DM from " + from + "] [" + timestamp + "]: " + message);
                     return true;
                 }
             }
         }
         return false;
+    }
+
+    /**
+     * Returns a list of all currently online usernames.
+     */
+    public java.util.List<String> getOnlineUsers() {
+        java.util.List<String> users = new java.util.ArrayList<>();
+        for (ChatObserver observer : observers) {
+            if (observer instanceof ClientHandler handler) {
+                String name = handler.getUsername();
+                if (name != null && !name.isBlank()) {
+                    users.add(name);
+                }
+            }
+        }
+        return users;
+    }
+
+    /**
+     * Broadcasts typing indicator to all clients except the typer.
+     */
+    public void broadcastTyping(String username, boolean isTyping) {
+        String signal = "[TYPING]" + username + ":" + (isTyping ? "1" : "0");
+        for (ChatObserver observer : observers) {
+            if (observer instanceof ClientHandler handler) {
+                if (!handler.getUsername().equals(username)) {
+                    handler.update(signal);
+                }
+            }
+        }
     }
 
     public void start() {
