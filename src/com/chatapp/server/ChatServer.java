@@ -120,6 +120,10 @@ public class ChatServer {
         try {
             serverSocket = new ServerSocket(port);
             System.out.println("Server started on port " + port);
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            System.out.println("\nShutting down server...");
+            stop();
+        }));
             acceptClients();
         } catch (IOException e) {
             System.err.println("Failed to start server: " + e.getMessage());
